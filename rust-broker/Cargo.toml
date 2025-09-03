@@ -1,6 +1,6 @@
 [package]
 name = "queue-broker"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 
 [dependencies]
@@ -16,9 +16,14 @@ sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "u
 # Use lapin without TLS (in-cluster AMQP)
 lapin = "2.3"
 
+# Serve static files (/ui) cleanly
+tower-http = { version = "0.5", features = ["fs"] }
+
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 dotenvy = "0.15"
 anyhow = "1"
 thiserror = "1"
 
+# ---- Pin transitive dependency away from edition 2024 ----
+# Note: base64ct version is pinned via cargo update --precise in Dockerfile

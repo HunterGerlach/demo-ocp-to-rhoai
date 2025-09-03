@@ -32,10 +32,10 @@
     ENV RUST_LOG=info
     WORKDIR /app
     COPY --from=builder /src/target/release/queue-broker /usr/local/bin/queue-broker
-    # Verify the binary exists and has execute permissions
-    RUN ls -la /usr/local/bin/queue-broker
-    # Test the binary can at least start (will fail on missing env vars, but that's expected)
-    RUN timeout 5s /usr/local/bin/queue-broker --help || true
+    
+    # Copy static UI assets (served from /ui)
+    COPY static /app/static
+    
     EXPOSE 8080
     CMD ["/usr/local/bin/queue-broker"]
     

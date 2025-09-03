@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>AI Queue Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="stylesheet" href="/ui/styles.css">
+  <script src="/ui/app.js" defer></script>
+</head>
+<body>
+  <h1>AI Queue Demo</h1>
+  <p>Submit a request, then watch status under <strong>Recent Jobs</strong>. Click a Job ID for full details. Polling every 2s.</p>
+
+  <div class="toolbar">
+    <button id="purge" class="danger">Purge DB & Queue</button>
+    <span id="purge-status" class="muted"></span>
+  </div>
+
+  <div class="grid">
+    <fieldset>
+      <legend><strong>Iris</strong> (classification)</legend>
+      <p class="muted"><small>features: [sepal_len, sepal_wid, petal_len, petal_wid]</small></p>
+      <form id="iris-form">
+        <input type="number" step="0.01" name="f0" value="5.1" /> 
+        <input type="number" step="0.01" name="f1" value="3.5" />
+        <input type="number" step="0.01" name="f2" value="1.4" />
+        <input type="number" step="0.01" name="f3" value="0.2" />
+        <br/><br/>
+        <button type="submit">Submit Iris</button>
+        <button type="button" id="iris-rand">Random</button>
+      </form>
+      <pre id="iris-out"></pre>
+    </fieldset>
+
+    <fieldset>
+      <legend><strong>Diabetes</strong> (regression)</legend>
+      <p class="muted"><small>features object with keys age, sex, bmi, bp, s1..s6 (standardized)</small></p>
+      <form id="diab-form">
+        <div id="diab-fields"></div>
+        <br/>
+        <button type="submit">Submit Diabetes</button>
+        <button type="button" id="diab-rand">Random</button>
+      </form>
+      <pre id="diab-out"></pre>
+    </fieldset>
+  </div>
+
+  <h2>Recent Jobs</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Model</th><th>Status</th><th class="nowrap">Result (summary)</th><th>Updated</th>
+      </tr>
+    </thead>
+    <tbody id="jobs"></tbody>
+  </table>
+
+  <h2>Selected Job</h2>
+  <div id="selected" class="panel">
+    <p class="muted">None selected.</p>
+  </div>
+  <pre id="job-json" class="panel" style="display:none"></pre>
+</body>
+</html>

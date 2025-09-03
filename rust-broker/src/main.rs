@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::{Html, IntoResponse},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
@@ -13,10 +13,12 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use lapin::{
-    options::{BasicPublishOptions, QueueDeclareOptions},
+    options::{BasicPublishOptions, QueueDeclareOptions, QueuePurgeOptions},
     types::FieldTable,
     BasicProperties, Channel, Connection, ConnectionProperties,
 };
+
+use tower_http::services::ServeDir;
 
 #[derive(Clone)]
 struct AppState {
@@ -73,6 +75,12 @@ struct JobListItem {
     updated_at: String,
     result: Option<serde_json::Value>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct PurgeResp {
+    deleted_jobs: i64,
+    purged_messages: u32,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -180,7 +188,7 @@ async fn main() -> anyhow::Result<()> {
     // Connect to RabbitMQ (with a few retries)
     info!("Connecting to RabbitMQ: {}", amqp_url);
     let mut amqp_attempts = 0;
-    let (amqp_conn, channel) = loop {
+    let (_amqp_conn, channel) = loop {
         amqp_attempts += 1;
         match Connection::connect(&amqp_url, ConnectionProperties::default()).await {
             Ok(conn) => match conn.create_channel().await {
@@ -221,13 +229,23 @@ async fn main() -> anyhow::Result<()> {
         queue_name,
     };
 
+    // --- Static UI serving ---
+    // Keep assets under ./static/ui in the container (see Dockerfile COPY).
+    let ui_dir = ServeDir::new("static/ui").append_index_html_on_directories(true);
+
     let app = Router::new()
         .route("/", get(|| async { "OK" }))
-        .route("/ui", get(ui_page))
+        // UI: serve static files at /ui/* and index at /ui
+        .nest_service("/ui", ui_dir)
+        // Also serve individual static files directly in case of routing issues
+        .nest_service("/static", ServeDir::new("static"))
+        // API
         .route("/predict/iris", post(predict_iris))
         .route("/predict/diabetes", post(predict_diabetes))
         .route("/jobs", get(list_jobs))
         .route("/jobs/:id", get(get_job))
+        .route("/admin/purge", post(purge_all))
+        .route("/debug/files", get(debug_files))
         .with_state(shared);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], http_port));
@@ -352,180 +370,58 @@ async fn list_jobs(State(st): State<AppState>) -> Result<Json<Vec<JobListItem>>,
     Ok(Json(items))
 }
 
-async fn ui_page() -> Html<&'static str> {
-    Html(UI_HTML)
+async fn purge_all(State(st): State<AppState>) -> Result<Json<PurgeResp>, ApiError> {
+    // count & truncate jobs
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs")
+        .fetch_one(&st.db)
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    sqlx::query("TRUNCATE TABLE jobs")
+        .execute(&st.db)
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+
+    // purge the queue
+    let purged_messages = st
+        .amqp
+        .queue_purge(
+            &st.queue_name,
+            QueuePurgeOptions { nowait: false },
+        )
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+
+    Ok(Json(PurgeResp {
+        deleted_jobs: count,
+        purged_messages,
+    }))
 }
 
-const UI_HTML: &str = r#"<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<title>AI Queue Demo</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
-  h1 { margin-bottom: .5rem; }
-  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); }
-  fieldset { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
-  button { padding: .5rem .75rem; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }
-  code { background: #f5f5f5; padding: .2rem .35rem; border-radius: 4px; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { border-bottom: 1px solid #eee; padding: .5rem; text-align: left; font-size: .95rem; vertical-align: top; }
-  .ok { color: #0a7f2e; } .fail { color: #b40000; } .queued { color: #925a00; }
-  .muted { color: #666; }
-  .nowrap { white-space: nowrap; }
-  .result { max-width: 420px; overflow-wrap: anywhere; }
-  .panel { background:#fafafa; border:1px solid #eee; border-radius:8px; padding:1rem; }
-</style>
-</head>
-<body>
-<h1>AI Queue Demo</h1>
-<p>Submit a request, then watch its status under <strong>Recent Jobs</strong>. Click a Job ID to view full details. Polling every 2s.</p>
-
-<div class="grid">
-  <fieldset>
-    <legend><strong>Iris</strong> (classification)</legend>
-    <p class="muted"><small>features: [sepal_len, sepal_wid, petal_len, petal_wid]</small></p>
-    <form id="iris-form">
-      <input type="number" step="0.01" name="f0" value="5.1" /> 
-      <input type="number" step="0.01" name="f1" value="3.5" />
-      <input type="number" step="0.01" name="f2" value="1.4" />
-      <input type="number" step="0.01" name="f3" value="0.2" />
-      <br/><br/>
-      <button type="submit">Submit Iris</button>
-      <button type="button" id="iris-rand">Random</button>
-    </form>
-    <pre id="iris-out"></pre>
-  </fieldset>
-
-  <fieldset>
-    <legend><strong>Diabetes</strong> (regression)</legend>
-    <p class="muted"><small>features object with keys age, sex, bmi, bp, s1..s6 (standardized)</small></p>
-    <form id="diab-form">
-      <div id="diab-fields"></div>
-      <br/>
-      <button type="submit">Submit Diabetes</button>
-      <button type="button" id="diab-rand">Random</button>
-    </form>
-    <pre id="diab-out"></pre>
-  </fieldset>
-</div>
-
-<h2>Recent Jobs</h2>
-<table>
-  <thead>
-    <tr>
-      <th>ID</th><th>Model</th><th>Status</th><th class="nowrap">Result (summary)</th><th>Updated</th>
-    </tr>
-  </thead>
-  <tbody id="jobs"></tbody>
-</table>
-
-<h2>Selected Job</h2>
-<div id="selected" class="panel">
-  <p class="muted">None selected.</p>
-</div>
-<pre id="job-json" class="panel" style="display:none"></pre>
-
-<script>
-const qs = (s)=>document.querySelector(s);
-const jobsTbody = qs('#jobs');
-const selectedDiv = qs('#selected');
-const jobJson = qs('#job-json');
-let selectedId = null;
-
-function ell(s){ return s.length>12 ? s.slice(0,8)+'…'+s.slice(-4) : s }
-function badge(status){
-  if(status==='completed') return '<span class="ok">completed</span>';
-  if(status==='failed') return '<span class="fail">failed</span>';
-  return '<span class="queued">'+status+'</span>';
-}
-function summarizeResult(r, err){
-  if(err) return '<span class="fail">'+err+'</span>';
-  if(!r) return '<span class="muted">—</span>';
-  try{
-    if(r.type==='classification' && r.label_name!==undefined){
-      return 'class: <strong>' + r.label_name + '</strong> (id=' + (r.label_id ?? '?') + ')';
-    }
-    if(r.type==='regression' && r.prediction!==undefined){
-      const p = Number(r.prediction);
-      return 'ŷ = <strong>' + (isFinite(p)? p.toFixed(3): p) + '</strong>';
-    }
-  }catch(e){}
-  let s = JSON.stringify(r);
-  if(s.length>96) s = s.slice(0,93)+'…';
-  return s;
-}
-async function listJobs(){
-  try{
-    const r = await fetch('/jobs');
-    const data = await r.json();
-    jobsTbody.innerHTML = data.map(j =>
-      "<tr>" +
-        "<td><a href='#' data-job-id='" + j.id + "'><code title='" + j.id + "'>" + ell(j.id) + "</code></a></td>" +
-        "<td>" + j.model + "</td>" +
-        "<td>" + badge(j.status) + "</td>" +
-        "<td class='result'>" + summarizeResult(j.result, j.error) + "</td>" +
-        "<td class='nowrap'><small>" + j.updated_at + "</small></td>" +
-      "</tr>").join("");
-    // bind click handlers
-    document.querySelectorAll('[data-job-id]').forEach(a=>{
-      a.addEventListener('click', ev=>{
-        ev.preventDefault();
-        selectedId = a.getAttribute('data-job-id');
-        loadJob(selectedId);
-      });
+async fn debug_files() -> Result<Json<serde_json::Value>, ApiError> {
+    use std::fs;
+    
+    let cwd = std::env::current_dir().unwrap_or_else(|_| "unknown".into());
+    let mut info = serde_json::json!({
+        "working_directory": cwd,
+        "files": {}
     });
-  }catch(e){ console.log(e); }
+    
+    // Check if static directory exists
+    let paths_to_check = [".", "static", "static/ui"];
+    for path in paths_to_check {
+        if let Ok(entries) = fs::read_dir(path) {
+            let files: Vec<String> = entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect();
+            info["files"][path] = serde_json::json!(files);
+        } else {
+            info["files"][path] = serde_json::json!("directory_not_found");
+        }
+    }
+    
+    Ok(Json(info))
 }
-async function loadJob(id){
-  try{
-    const r = await fetch('/jobs/'+id);
-    const data = await r.json();
-         selectedDiv.innerHTML = '<div><strong>Job:</strong> <code>' + data.id + '</code> • <strong>Model:</strong> ' + data.model + ' • <strong>Status:</strong> ' + data.status + '</div>';
-    jobJson.style.display = 'block';
-    jobJson.textContent = JSON.stringify(data, null, 2);
-  }catch(e){
-    selectedDiv.innerHTML = '<span class="fail">Failed to load job ' + id + '</span>';
-    jobJson.style.display = 'none';
-  }
-}
-setInterval(()=>{
-  listJobs();
-  if(selectedId) loadJob(selectedId);
-}, 2000);
-listJobs();
-
-// Iris form
-qs('#iris-form').addEventListener('submit', async (ev)=>{
-  ev.preventDefault();
-  const f = ev.target;
-  const feats = [f.f0.value, f.f1.value, f.f2.value, f.f3.value].map(parseFloat);
-  const r = await fetch('/predict/iris', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({features:feats})});
-  qs('#iris-out').textContent = await r.text();
-});
-qs('#iris-rand').addEventListener('click', ()=>{
-  const rand = ()=> (Math.random()*6).toFixed(2);
-  ['f0','f1','f2','f3'].forEach((n)=>{ qs('#iris-form [name=' + n + ']').value = rand(); });
-});
-
-// Diabetes form (build inputs)
-const diabKeys = ["age","sex","bmi","bp","s1","s2","s3","s4","s5","s6"];
-qs('#diab-fields').innerHTML = diabKeys.map(k=>"<label>" + k + ": <input type='number' step='0.0001' name='" + k + "' value='0.0'/></label>").join("<br/>");
-qs('#diab-form').addEventListener('submit', async (ev)=>{
-  ev.preventDefault();
-  const f = ev.target;
-  const features = Object.fromEntries(diabKeys.map(k=>[k, parseFloat(f[k].value)]));
-  const r = await fetch('/predict/diabetes', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({features})});
-  qs('#diab-out').textContent = await r.text();
-});
-qs('#diab-rand').addEventListener('click', ()=>{
-  diabKeys.forEach(k => { qs('#diab-form [name=' + k + ']').value = (Math.random()*0.2 - 0.1).toFixed(4); });
-});
-</script>
-</body>
-</html>
-"#;
 
 async fn shutdown_signal() {
     let _ = signal::ctrl_c().await;

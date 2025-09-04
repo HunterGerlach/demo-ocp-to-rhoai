@@ -19,6 +19,7 @@ use lapin::{
 };
 
 use tower_http::services::ServeDir;
+use base64::{Engine as _, engine::general_purpose};
 
 #[derive(Clone)]
 struct AppState {
@@ -334,7 +335,7 @@ async fn predict_yolo(
             }
             
             // Encode as base64 for JSON transport
-            image_data = Some(base64::encode(&data));
+            image_data = Some(general_purpose::STANDARD.encode(&data));
             break;
         }
     }
@@ -382,7 +383,7 @@ async fn predict_audio(
             }
             
             // Encode as base64 for JSON transport
-            audio_data = Some(base64::encode(&data));
+            audio_data = Some(general_purpose::STANDARD.encode(&data));
             break;
         }
     }
@@ -486,12 +487,12 @@ async fn list_jobs(State(st): State<AppState>) -> Result<Json<Vec<JobListItem>>,
 }
 
 async fn purge_all(State(st): State<AppState>) -> Result<Json<PurgeResp>, ApiError> {
-    // count & truncate jobs
+    // count & delete all jobs (cascades to files table)
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs")
         .fetch_one(&st.db)
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
-    sqlx::query("TRUNCATE TABLE jobs")
+    sqlx::query("DELETE FROM jobs")
         .execute(&st.db)
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;

@@ -5,12 +5,16 @@ import time
 import pickle
 import base64
 import tempfile
+import warnings
 from typing import Dict, Any
 
 import numpy as np
 import pika
 import psycopg2
 from huggingface_hub import hf_hub_download
+
+# Suppress scikit-learn version warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
 # New imports for image and audio processing
 from PIL import Image
@@ -75,8 +79,14 @@ def load_pickle_from_hf(repo: str, filename: str):
         cache_dir=HF_HOME,
         local_dir="/tmp/models",
     )
-    with open(local_path, "rb") as f:
-        return pickle.load(f)
+    try:
+        with open(local_path, "rb") as f:
+            return pickle.load(f)
+    except Exception as e:
+        print(f"[worker] Failed to load model {repo}/{filename}: {e}", flush=True)
+        print(f"[worker] This might be due to scikit-learn version compatibility", flush=True)
+        # Re-raise the error so the application fails fast rather than silently continuing
+        raise
 
 def load_yolo_model(repo: str):
     """Load YOLO model from HuggingFace"""
@@ -284,7 +294,10 @@ def connect_mq():
 
 def run_inference(models: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]:
     model_key = job["model"]
+    
     if model_key == "iris":
+        if "iris" not in models:
+            return {"type": "error", "message": "Iris model not available due to compatibility issues"}
         feats = job["input"]["features"]
         X = np.array(feats, dtype=float).reshape(1, -1)
         clf = models["iris"]
@@ -301,6 +314,8 @@ def run_inference(models: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]
         return {"type": "classification", "label_id": int(y), "label_name": name, "proba": prob}
 
     elif model_key == "diabetes":
+        if "diabetes" not in models:
+            return {"type": "error", "message": "Diabetes model not available due to compatibility issues"}
         f = job["input"]["features"]
         cols = ["age","sex","bmi","bp","s1","s2","s3","s4","s5","s6"]
         X = np.array([[f[c] for c in cols]], dtype=float)
@@ -398,18 +413,39 @@ def run_inference(models: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]
 
 def main():
     print("[worker] loading models...", flush=True)
-    iris_model = load_pickle_from_hf(IRIS_REPO, IRIS_FILE)
-    diab_model = load_pickle_from_hf(DIAB_REPO, DIAB_FILE)
-    yolo_model = load_yolo_model(YOLO_REPO)
-    audio_classifier = create_audio_classifier()
     
-    models = {
-        "iris": iris_model, 
-        "diabetes": diab_model,
-        "yolo": yolo_model,
-        "audio": audio_classifier
-    }
-    print("[worker] all models ready.", flush=True)
+    # Load models with fallback handling
+    models = {}
+    
+    # Iris model
+    try:
+        iris_model = load_pickle_from_hf(IRIS_REPO, IRIS_FILE)
+        models["iris"] = iris_model
+        print("[worker] iris model loaded successfully", flush=True)
+    except Exception as e:
+        print(f"[worker] Failed to load iris model: {e}", flush=True)
+        print("[worker] iris predictions will be disabled", flush=True)
+    
+    # Diabetes model  
+    try:
+        diab_model = load_pickle_from_hf(DIAB_REPO, DIAB_FILE)
+        models["diabetes"] = diab_model
+        print("[worker] diabetes model loaded successfully", flush=True)
+    except Exception as e:
+        print(f"[worker] Failed to load diabetes model: {e}", flush=True)
+        print("[worker] diabetes predictions will be disabled", flush=True)
+    
+    # YOLO model (always works with fallback)
+    yolo_model = load_yolo_model(YOLO_REPO)
+    models["yolo"] = yolo_model
+    print("[worker] YOLO/image model ready", flush=True)
+    
+    # Audio classifier (always works)
+    audio_classifier = create_audio_classifier()
+    models["audio"] = audio_classifier
+    print("[worker] audio classifier ready", flush=True)
+    
+    print(f"[worker] loaded {len(models)} models successfully", flush=True)
 
     conn = connect_db()
     cur = conn.cursor()

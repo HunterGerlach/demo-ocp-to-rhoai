@@ -1,12 +1,8 @@
-FROM python:3.11-slim
+FROM python:3.10
 
-# Install system dependencies including build tools for scikit-learn
+# Install minimal system dependencies
 RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
-    gcc \
-    g++ \
-    libc6-dev \
-    python3-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

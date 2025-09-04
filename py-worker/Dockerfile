@@ -13,8 +13,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY requirements.txt .
 
-# Install all dependencies (CUDA-free)
-RUN pip install --no-cache-dir -r requirements.txt
+# Install lightweight dependencies (no PyTorch/CUDA)
+RUN pip install --no-cache-dir --timeout 60 -r requirements.txt
 
 COPY app.py .
 EXPOSE 8000

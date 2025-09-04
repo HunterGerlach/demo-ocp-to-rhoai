@@ -22,16 +22,15 @@ import librosa
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 
-# Try to import YOLO with fallback
+# Try to import OpenCV for lightweight computer vision
 try:
-    import torch
-    from ultralytics import YOLO
-    YOLO_AVAILABLE = True
-    print("[worker] YOLO imported successfully", flush=True)
+    import cv2
+    print(f"[worker] OpenCV {cv2.__version__} imported successfully", flush=True)
+    OPENCV_AVAILABLE = True
 except ImportError as e:
-    print(f"[worker] YOLO import failed: {e}", flush=True)
-    print("[worker] YOLO functionality will be disabled", flush=True)
-    YOLO_AVAILABLE = False
+    print(f"[worker] OpenCV import failed: {e}", flush=True)
+    print("[worker] Advanced image analysis will be disabled, using basic PIL only", flush=True)
+    OPENCV_AVAILABLE = False
 
 # ---- Config ----
 AMQP_URL = os.getenv("AMQP_URL") or "amqp://{u}:{p}@{h}:{port}/%2f".format(
@@ -62,8 +61,7 @@ DIAB_REPO = os.getenv(
 )
 DIAB_FILE = os.getenv("MODEL_DIAB_FILE", "skops-xcxb87en.pkl")  # .pkl
 
-# New models
-YOLO_REPO = os.getenv("MODEL_YOLO_REPO", "ultralytics/yolov8n")
+# Image processing - lightweight OpenCV classifier
 # Audio classifier is lightweight - no external repo needed
 
 HF_TOKEN = os.getenv("HF_TOKEN", None)
@@ -147,73 +145,295 @@ def load_pickle_from_hf(repo: str, filename: str):
             # For other types of errors, re-raise immediately
             raise
 
-def load_yolo_model(repo: str):
-    """Load YOLO model from HuggingFace"""
-    if not YOLO_AVAILABLE:
-        print(f"[worker] YOLO not available, creating dummy model", flush=True)
-        return DummyYOLOModel()
+def create_opencv_classifier():
+    """Create lightweight OpenCV-based image classifier"""
+    print(f"[worker] creating OpenCV-based image classifier...", flush=True)
     
-    print(f"[worker] loading YOLO model from {repo}...", flush=True)
-    try:
-        # Download model to local cache, YOLO will handle the rest
-        model = YOLO(f"hf://{repo}")
-        return model
-    except Exception as e:
-        print(f"[worker] Failed to load YOLO model: {e}", flush=True)
-        print(f"[worker] Using dummy YOLO model instead", flush=True)
-        return DummyYOLOModel()
+    class OpenCVImageClassifier:
+        def __init__(self):
+            self.face_cascade = None
+            self.eye_cascade = None
+            
+            if OPENCV_AVAILABLE:
+                try:
+                    # Load OpenCV's pre-trained face detection
+                    self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+                    self.eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
+                    print(f"[worker] OpenCV face detection loaded", flush=True)
+                except Exception as e:
+                    print(f"[worker] OpenCV cascade loading failed: {e}", flush=True)
+        
+        def analyze_image_advanced(self, image_path):
+            """Advanced image analysis using OpenCV + PIL"""
+            try:
+                # Load image with PIL first
+                with Image.open(image_path) as pil_img:
+                    if pil_img.mode != 'RGB':
+                        pil_img = pil_img.convert('RGB')
+                    
+                    width, height = pil_img.size
+                    aspect_ratio = width / height
+                    
+                    # Convert PIL to OpenCV format
+                    if OPENCV_AVAILABLE:
+                        cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                        gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+                        
+                        # Face detection
+                        faces_detected = 0
+                        if self.face_cascade is not None:
+                            faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
+                            faces_detected = len(faces)
+                        
+                        # Edge detection for structure analysis
+                        edges = cv2.Canny(gray, 50, 150)
+                        edge_density = np.sum(edges > 0) / (width * height)
+                        
+                        # Contour detection for object analysis
+                        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        large_contours = [c for c in contours if cv2.contourArea(c) > 500]
+                        
+                        # Blur detection using Laplacian variance
+                        blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
+                        
+                        # Brightness and contrast analysis
+                        brightness = np.mean(gray)
+                        contrast = np.std(gray)
+                        
+                        # Color analysis in HSV
+                        hsv = cv2.cvtColor(cv_img, cv2.COLOR_BGR2HSV)
+                        
+                        # Dominant color analysis
+                        dominant_hue = np.median(hsv[:, :, 0])
+                        saturation_mean = np.mean(hsv[:, :, 1])
+                        
+                        # Classification logic
+                        predicted_class = "unknown"
+                        confidence = 0.5
+                        reasoning = []
+                        
+                        # Face detection
+                        if faces_detected > 0:
+                            predicted_class = "portrait_photo"
+                            confidence = min(0.9, 0.6 + faces_detected * 0.1)
+                            reasoning.append(f"Detected {faces_detected} face(s)")
+                        
+                        # Text/document detection (high edge density, low color variation)
+                        elif edge_density > 0.15 and saturation_mean < 50:
+                            predicted_class = "text_document"
+                            confidence = 0.8
+                            reasoning.append(f"High edge density ({edge_density:.3f}), low saturation")
+                        
+                        # Screenshot/UI detection (geometric shapes, high contrast)
+                        elif len(large_contours) > 5 and contrast > 60:
+                            predicted_class = "screenshot_ui"
+                            confidence = 0.75
+                            reasoning.append(f"{len(large_contours)} geometric objects, high contrast")
+                        
+                        # Blurry image detection
+                        elif blur_score < 100:
+                            predicted_class = "blurry_image"
+                            confidence = 0.85
+                            reasoning.append(f"Low blur score: {blur_score:.1f}")
+                        
+                        # Landscape vs portrait orientation
+                        elif aspect_ratio > 1.5:
+                            if saturation_mean > 100 and dominant_hue in [35, 60, 120]:  # Green/blue hues
+                                predicted_class = "landscape_photo"
+                                confidence = 0.7
+                                reasoning.append("Wide aspect ratio, natural colors")
+                            else:
+                                predicted_class = "indoor_scene"
+                                confidence = 0.65
+                                reasoning.append("Wide aspect ratio, indoor lighting")
+                        
+                        # High contrast geometric
+                        elif contrast > 80 and len(large_contours) > 2:
+                            predicted_class = "geometric_shapes"
+                            confidence = 0.75
+                            reasoning.append(f"High contrast ({contrast:.1f}), {len(large_contours)} objects")
+                        
+                        # Nature scene (green/blue dominant, high saturation)
+                        elif dominant_hue in range(35, 85) and saturation_mean > 80:  # Green range
+                            predicted_class = "nature_scene"
+                            confidence = 0.7
+                            reasoning.append("Green dominant colors, high saturation")
+                        
+                        # Outdoor scene (bright, high saturation)
+                        elif brightness > 150 and saturation_mean > 60:
+                            predicted_class = "outdoor_scene"
+                            confidence = 0.65
+                            reasoning.append("Bright lighting, good color saturation")
+                        
+                        # Artwork/drawing (moderate edges, high color variation)
+                        elif edge_density > 0.05 and saturation_mean > 70:
+                            predicted_class = "artwork_drawing"
+                            confidence = 0.6
+                            reasoning.append("Artistic edge patterns, vibrant colors")
+                        
+                        # Pattern/texture (many small contours)
+                        elif len(contours) > 50 and len(large_contours) < 5:
+                            predicted_class = "pattern_texture"
+                            confidence = 0.65
+                            reasoning.append(f"Many small features ({len(contours)})")
+                        
+                        else:
+                            # Default based on lighting and color
+                            if brightness < 80:
+                                predicted_class = "dark_scene"
+                                confidence = 0.6
+                                reasoning.append("Low brightness")
+                            elif saturation_mean < 30:
+                                predicted_class = "grayscale_monochrome"
+                                confidence = 0.7
+                                reasoning.append("Low color saturation")
+                            else:
+                                predicted_class = "general_photo"
+                                confidence = 0.5
+                                reasoning.append("Standard photo characteristics")
+                        
+                        return {
+                            "type": "image_classification",
+                            "predicted_class": predicted_class,
+                            "confidence": confidence,
+                            "detections": [
+                                {
+                                    "class_name": predicted_class,
+                                    "confidence": confidence,
+                                    "reasoning": "; ".join(reasoning)
+                                }
+                            ],
+                            "analysis": {
+                                "faces_detected": faces_detected,
+                                "edge_density": edge_density,
+                                "blur_score": blur_score,
+                                "brightness": brightness,
+                                "contrast": contrast,
+                                "dominant_hue": dominant_hue,
+                                "saturation": saturation_mean,
+                                "large_objects": len(large_contours),
+                                "total_contours": len(contours),
+                                "aspect_ratio": aspect_ratio,
+                                "image_size": [width, height]
+                            },
+                            "message": f"OpenCV analysis classified as {predicted_class}"
+                        }
+                    else:
+                        # Fall back to simple PIL analysis
+                        return self.simple_pil_analysis(pil_img, width, height)
+                        
+            except Exception as e:
+                return {
+                    "type": "error",
+                    "message": f"Image analysis failed: {str(e)}"
+                }
+        
+        def simple_pil_analysis(self, pil_img, width, height):
+            """Fallback analysis using just PIL"""
+            pixels = list(pil_img.getdata())
+            
+            # Basic statistics
+            r_values = [p[0] for p in pixels]
+            g_values = [p[1] for p in pixels]
+            b_values = [p[2] for p in pixels]
+            
+            avg_brightness = sum(r + g + b for r, g, b in pixels) / (len(pixels) * 3)
+            color_variance = np.var([np.var(r_values), np.var(g_values), np.var(b_values)])
+            
+            # Simple classification
+            if avg_brightness < 50:
+                predicted_class = "dark_image"
+                confidence = 0.7
+            elif color_variance < 100:
+                predicted_class = "low_contrast"
+                confidence = 0.6
+            elif width / height > 2:
+                predicted_class = "panoramic_image"
+                confidence = 0.65
+            else:
+                predicted_class = "standard_photo"
+                confidence = 0.5
+            
+            return {
+                "type": "image_classification",
+                "predicted_class": predicted_class,
+                "confidence": confidence,
+                "detections": [{"class_name": predicted_class, "confidence": confidence}],
+                "analysis": {
+                    "brightness": avg_brightness,
+                    "color_variance": color_variance,
+                    "image_size": [width, height]
+                },
+                "message": f"Basic PIL analysis classified as {predicted_class}"
+            }
+        
+        def __call__(self, image_path):
+            """Make it callable like YOLO model"""
+            return [self.analyze_image_advanced(image_path)]
+    
+    return OpenCVImageClassifier()
 
 class SimpleImageClassifier:
-    """Simple image classifier using PIL and basic statistics"""
+    """Enhanced image classifier using PIL and computer vision techniques"""
     def __init__(self):
-        self.classes = ["bright_image", "dark_image", "colorful_image", "grayscale_image"]
+        self.classes = [
+            "portrait_photo", "landscape_photo", "indoor_scene", "outdoor_scene",
+            "text_document", "diagram_chart", "artwork_drawing", "pattern_texture",
+            "face_detected", "geometric_shapes", "high_contrast", "blurry_image",
+            "screenshot_ui", "nature_scene", "architectural", "vehicle_transport"
+        ]
     
     def analyze_image(self, image_path):
-        """Analyze image using basic PIL operations"""
+        """Enhanced image analysis using computer vision techniques"""
         try:
-            from PIL import Image
+            from PIL import Image, ImageFilter, ImageStat
+            import numpy as np
+            
+            print(f"[image] Analyzing image: {image_path}", flush=True)
+            
             with Image.open(image_path) as img:
                 # Convert to RGB if necessary
+                original_mode = img.mode
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 
-                # Get basic image statistics
+                # Get basic image information
                 width, height = img.size
-                pixels = list(img.getdata())
+                aspect_ratio = width / height if height > 0 else 1.0
+                total_pixels = width * height
                 
-                # Calculate color statistics
-                r_values = [p[0] for p in pixels]
-                g_values = [p[1] for p in pixels]
-                b_values = [p[2] for p in pixels]
+                print(f"[image] Image info: {width}x{height}, aspect ratio: {aspect_ratio:.2f}", flush=True)
                 
-                avg_brightness = sum(r + g + b for r, g, b in pixels) / (len(pixels) * 3)
-                color_variance = np.var([np.var(r_values), np.var(g_values), np.var(b_values)])
+                # Get image statistics
+                stat = ImageStat.Stat(img)
+                avg_brightness = sum(stat.mean) / len(stat.mean)
+                color_variance = np.var(stat.mean)
                 
-                # Simple classification based on image characteristics
-                if avg_brightness > 180:
-                    predicted_class = "bright_image"
-                    confidence = 0.8
-                elif avg_brightness < 80:
-                    predicted_class = "dark_image"  
-                    confidence = 0.75
-                elif color_variance > 2000:
-                    predicted_class = "colorful_image"
-                    confidence = 0.7
-                else:
-                    predicted_class = "grayscale_image"
-                    confidence = 0.6
+                # Advanced feature extraction
+                features = self._extract_advanced_features(img, width, height, aspect_ratio)
+                
+                # Enhanced classification logic
+                predicted_class, confidence, reasoning = self._classify_image_advanced(
+                    features, width, height, aspect_ratio, avg_brightness, color_variance
+                )
+                
+                print(f"[image] Classification: {predicted_class} ({confidence:.2f}) - {reasoning}", flush=True)
                 
                 return {
-                    "type": "simple_image_classification",
+                    "type": "enhanced_image_classification",
                     "predicted_class": predicted_class,
                     "confidence": confidence,
                     "image_size": [width, height],
                     "features": {
                         "avg_brightness": float(avg_brightness),
                         "color_variance": float(color_variance),
-                        "pixel_count": len(pixels)
+                        "aspect_ratio": float(aspect_ratio),
+                        "total_pixels": total_pixels,
+                        "original_mode": original_mode,
+                        **features
                     },
-                    "message": "Using simple PIL-based image analysis (YOLO not available)"
+                    "classification_reasoning": reasoning,
+                    "message": f"Enhanced image analysis classified as {predicted_class} (OpenCV fallback)"
                 }
                 
         except Exception as e:
@@ -226,15 +446,7 @@ class SimpleImageClassifier:
         """Make it callable like YOLO model"""
         return [self.analyze_image(image_path)]
 
-class DummyYOLOModel:
-    """Dummy YOLO model for when YOLO is not available"""
-    def __init__(self):
-        self.names = {0: "dummy_object", 1: "placeholder"}
-        self.simple_classifier = SimpleImageClassifier()
-    
-    def __call__(self, image_path):
-        """Use simple image classifier instead of dummy results"""
-        return self.simple_classifier(image_path)
+# DummyYOLOModel removed - replaced with OpenCV-based classifier
 
 def create_audio_classifier():
     """Create lightweight audio classifier using librosa + basic ML"""
@@ -625,7 +837,7 @@ def run_inference(models: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]
                 return {"type": "error", "message": f"Prediction failed: {str(e)}"}
 
     elif model_key == "yolo":
-        # Image classification with YOLO
+        # Image classification with OpenCV (lightweight, no PyTorch needed)
         image_data = job["input"]["image_data"]  # Base64 encoded
         filename = job["input"]["filename"]
         
@@ -638,50 +850,41 @@ def run_inference(models: Dict[str, Any], job: Dict[str, Any]) -> Dict[str, Any]
             image_path = tmp_file.name
         
         try:
-            yolo_model = models["yolo"]
+            opencv_classifier = models["yolo"]  # Using same key for compatibility
             
-            # Check if we're using dummy model (with simple classifier)
-            if isinstance(yolo_model, DummyYOLOModel):
-                # Use the simple image classifier
-                simple_results = yolo_model(image_path)
-                if simple_results and len(simple_results) > 0:
-                    return simple_results[0]  # Return the simple classification result
+            # Run OpenCV analysis
+            results = opencv_classifier(image_path)
+            
+            # Extract classification results
+            if results and len(results) > 0:
+                result = results[0]
+                if result.get("type") == "error":
+                    return result
                 else:
+                    # Convert to expected format
                     return {
-                        "type": "object_detection", 
-                        "detections": [],
-                        "num_detections": 0,
-                        "image_size": [640, 480],
-                        "message": "Image analysis failed"
+                        "type": "image_classification",
+                        "predicted_class": result.get("predicted_class", "unknown"),
+                        "confidence": result.get("confidence", 0.5),
+                        "detections": result.get("detections", []),
+                        "analysis": result.get("analysis", {}),
+                        "image_size": result.get("analysis", {}).get("image_size", [640, 480]),
+                        "model_info": "OpenCV + PIL Computer Vision Analysis",
+                        "message": result.get("message", "Image analyzed successfully")
                     }
+            else:
+                return {
+                    "type": "error",
+                    "message": "OpenCV analysis returned no results"
+                }
             
-            results = yolo_model(image_path)
-            
-            # Extract detection results
-            detections = []
-            if len(results) > 0:
-                result = results[0]  # First image
-                if hasattr(result, 'boxes') and result.boxes is not None:
-                    for box in result.boxes:
-                        detection = {
-                            "class_id": int(box.cls.item()),
-                            "class_name": yolo_model.names[int(box.cls.item())],
-                            "confidence": float(box.conf.item()),
-                            "bbox": box.xyxy.tolist()[0] if len(box.xyxy) > 0 else []
-                        }
-                        detections.append(detection)
-            
-            return {
-                "type": "object_detection",
-                "detections": detections,
-                "num_detections": len(detections),
-                "image_size": result.orig_shape if len(results) > 0 else None
-            }
+        except Exception as e:
+            return {"type": "error", "message": f"Image analysis failed: {str(e)}"}
         finally:
             # Clean up temporary file
             try:
                 os.unlink(image_path)
-            except Exception:
+            except:
                 pass
 
     elif model_key == "audio":
@@ -750,10 +953,10 @@ def main():
             print(f"[worker] Failed to create fallback model: {e2}", flush=True)
             print("[worker] diabetes predictions will be disabled", flush=True)
     
-    # YOLO model (always works with fallback)
-    yolo_model = load_yolo_model(YOLO_REPO)
-    models["yolo"] = yolo_model
-    print("[worker] YOLO/image model ready", flush=True)
+    # OpenCV Image classifier (lightweight, no CUDA/PyTorch needed)
+    opencv_classifier = create_opencv_classifier()
+    models["yolo"] = opencv_classifier  # Keep same key for compatibility
+    print("[worker] OpenCV image classifier ready", flush=True)
     
     # Audio classifier (always works)
     audio_classifier = create_audio_classifier()

@@ -6,8 +6,9 @@ scikit-learn==1.3.0
 numpy==1.26.4
 joblib==1.4.2
 
-# Image processing - lightweight approach (CUDA-free)
+# Lightweight image processing (no PyTorch/CUDA - just OpenCV + PIL)
 pillow==10.4.0
+opencv-python-headless==4.8.1.78
 
 # Audio processing (lightweight classifier)
 librosa==0.10.2

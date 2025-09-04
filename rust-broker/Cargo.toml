@@ -4,11 +4,11 @@ version = "0.1.3"
 edition = "2021"
 
 [dependencies]
-axum = "0.7"
+axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.21"
 
 # Use native-tls runtime to avoid rustls/edition2024 transitive chain
 sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "uuid", "json"] }
@@ -16,8 +16,9 @@ sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "u
 # Use lapin without TLS (in-cluster AMQP)
 lapin = "2.3"
 
-# Serve static files (/ui) cleanly
+# Serve static files (/ui) cleanly + multipart form handling
 tower-http = { version = "0.5", features = ["fs"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

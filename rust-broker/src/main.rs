@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, Multipart},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -167,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Ensure table exists
+    // Ensure tables exist
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS jobs (
@@ -179,7 +179,24 @@ async fn main() -> anyhow::Result<()> {
           error TEXT,
           created_at TIMESTAMPTZ DEFAULT now(),
           updated_at TIMESTAMPTZ DEFAULT now()
-        );
+        )
+        "#,
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS files (
+          id UUID PRIMARY KEY,
+          job_id UUID REFERENCES jobs(id) ON DELETE CASCADE,
+          filename TEXT NOT NULL,
+          content_type TEXT,
+          file_size BIGINT NOT NULL,
+          file_path TEXT NOT NULL,
+          file_hash TEXT,
+          created_at TIMESTAMPTZ DEFAULT now()
+        )
         "#,
     )
     .execute(&db)
@@ -242,6 +259,8 @@ async fn main() -> anyhow::Result<()> {
         // API
         .route("/predict/iris", post(predict_iris))
         .route("/predict/diabetes", post(predict_diabetes))
+        .route("/predict/yolo", post(predict_yolo))
+        .route("/predict/audio", post(predict_audio))
         .route("/jobs", get(list_jobs))
         .route("/jobs/:id", get(get_job))
         .route("/admin/purge", post(purge_all))
@@ -281,6 +300,102 @@ async fn predict_diabetes(
         }
     });
     enqueue_job(st, "diabetes", payload).await
+}
+
+async fn predict_yolo(
+    State(st): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<JobResp>, ApiError> {
+    let mut image_data = None;
+    let mut filename = None;
+    
+    // Process multipart form
+    while let Some(field) = multipart.next_field().await
+        .map_err(|e| ApiError::BadRequest(format!("Multipart error: {}", e)))? 
+    {
+        let name = field.name().unwrap_or("unknown").to_string();
+        
+        if name == "image" {
+            filename = Some(field.file_name()
+                .unwrap_or("image.jpg")
+                .to_string());
+            
+            // Read file data directly into memory
+            let data = field.bytes().await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to read image data: {}", e)))?;
+            
+            // Check file size limit (5MB for demo)
+            const MAX_FILE_SIZE: usize = 5 * 1024 * 1024; // 5MB
+            if data.len() > MAX_FILE_SIZE {
+                return Err(ApiError::BadRequest(
+                    format!("Image too large: {:.1}MB. Max size: 5MB", 
+                           data.len() as f64 / 1024.0 / 1024.0)
+                ));
+            }
+            
+            // Encode as base64 for JSON transport
+            image_data = Some(base64::encode(&data));
+            break;
+        }
+    }
+    
+    let image_data = image_data.ok_or_else(|| ApiError::BadRequest("No image file provided".into()))?;
+    let filename = filename.unwrap_or_else(|| "image.jpg".to_string());
+    
+    let payload = serde_json::json!({
+        "image_data": image_data,
+        "filename": filename
+    });
+    
+    enqueue_job(st, "yolo", payload).await
+}
+
+async fn predict_audio(
+    State(st): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<JobResp>, ApiError> {
+    let mut audio_data = None;
+    let mut filename = None;
+    
+    // Process multipart form
+    while let Some(field) = multipart.next_field().await
+        .map_err(|e| ApiError::BadRequest(format!("Multipart error: {}", e)))? 
+    {
+        let name = field.name().unwrap_or("unknown").to_string();
+        
+        if name == "audio" {
+            filename = Some(field.file_name()
+                .unwrap_or("audio.wav")
+                .to_string());
+            
+            // Read file data directly into memory
+            let data = field.bytes().await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to read audio data: {}", e)))?;
+            
+            // Check file size limit (10MB for audio)
+            const MAX_AUDIO_SIZE: usize = 10 * 1024 * 1024; // 10MB
+            if data.len() > MAX_AUDIO_SIZE {
+                return Err(ApiError::BadRequest(
+                    format!("Audio file too large: {:.1}MB. Max size: 10MB", 
+                           data.len() as f64 / 1024.0 / 1024.0)
+                ));
+            }
+            
+            // Encode as base64 for JSON transport
+            audio_data = Some(base64::encode(&data));
+            break;
+        }
+    }
+    
+    let audio_data = audio_data.ok_or_else(|| ApiError::BadRequest("No audio file provided".into()))?;
+    let filename = filename.unwrap_or_else(|| "audio.wav".to_string());
+    
+    let payload = serde_json::json!({
+        "audio_data": audio_data,
+        "filename": filename
+    });
+    
+    enqueue_job(st, "audio", payload).await
 }
 
 async fn enqueue_job(

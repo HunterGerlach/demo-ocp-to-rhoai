@@ -29,6 +29,12 @@ parameters:
     value: skops-tests/tabularregression-sklearn-latest-hist_gradient_boosting_regressor-with-config-pickle
   - name: MODEL_DIAB_FILE
     value: skops-xcxb87en.pkl
+  - name: MODEL_YOLO_REPO
+    value: ultralytics/yolov8n
+  # Audio classification is lightweight - no external repo needed
+  - name: STORAGE_CLASS_NAME
+    value: "crc-csi-hostpath-provisioner"
+    description: "Storage class for shared file storage"
 
 objects:
 # --- Secrets for DB and MQ ---
@@ -63,6 +69,16 @@ objects:
     MODEL_IRIS_FILE: "${MODEL_IRIS_FILE}"
     MODEL_DIAB_REPO: "${MODEL_DIAB_REPO}"
     MODEL_DIAB_FILE: "${MODEL_DIAB_FILE}"
+    MODEL_YOLO_REPO: "${MODEL_YOLO_REPO}"
+
+# --- Shared Storage for Files ---
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata: { name: ml-files-storage }
+  spec:
+    accessModes: ["ReadWriteMany"]
+    resources: { requests: { storage: "10Gi" } }
+    storageClassName: ${STORAGE_CLASS_NAME}
 
 # --- Postgres (OpenShift-ready image; ephemeral) ---
 - apiVersion: apps/v1
@@ -204,6 +220,11 @@ objects:
             env:
               - { name: PORT, value: "8080" }
               - { name: STARTUP_DELAY_SECS, value: "10" }
+            volumeMounts:
+              - { name: shared-files, mountPath: /shared-storage }
+        volumes:
+          - name: shared-files
+            persistentVolumeClaim: { claimName: ml-files-storage }
 - apiVersion: v1
   kind: Service
   metadata: { name: broker }
@@ -240,3 +261,8 @@ objects:
               - configMapRef: { name: app-config }
               - secretRef: { name: db-secret }
               - secretRef: { name: rabbit-secret }
+            volumeMounts:
+              - { name: shared-files, mountPath: /shared-storage }
+        volumes:
+          - name: shared-files
+            persistentVolumeClaim: { claimName: ml-files-storage }

@@ -65,6 +65,66 @@
       </div>
       <pre id="diab-out"></pre>
     </fieldset>
+
+    <fieldset>
+      <legend><strong>YOLO Object Detection</strong> 📷</legend>
+      <p class="model-info">
+        <strong>Model:</strong> <a href="https://huggingface.co/ultralytics/yolov8n" target="_blank">YOLOv8n (Ultralytics)</a><br/>
+        <strong>Purpose:</strong> Detect and classify objects in images (80+ object classes)<br/>
+        <strong>Classes:</strong> person, car, dog, cat, bicycle, airplane, etc.
+      </p>
+      <div class="input-help">
+        <strong>Input:</strong> Image file (JPEG, PNG, etc.)
+        <small>⚠️ Supported formats: .jpg, .jpeg, .png, .bmp, .tiff | Max size: 5MB</small>
+      </div>
+      <form id="yolo-form" enctype="multipart/form-data">
+        <div class="file-upload-area" id="yolo-drop-zone">
+          <input type="file" id="yolo-file" name="image" accept="image/*" style="display: none;">
+          <div class="drop-zone-content">
+            <p>📸 <strong>Click to select image</strong> or drag & drop</p>
+            <p class="file-info" style="display: none;"></p>
+            <img class="image-preview" style="display: none; max-width: 200px; max-height: 200px; margin-top: 10px;">
+          </div>
+        </div>
+        <br/>
+        <button type="submit" disabled>🔍 Detect Objects</button>
+        <button type="button" id="yolo-sample">🖼️ Load Demo Image</button>
+      </form>
+      <div class="output-help">
+        <strong>Expected Output:</strong> Object detection results or simple image classification (brightness, color analysis) if YOLO unavailable
+      </div>
+      <pre id="yolo-out"></pre>
+    </fieldset>
+
+    <fieldset>
+      <legend><strong>Audio Classification</strong> 🎵</legend>
+      <p class="model-info">
+        <strong>Model:</strong> Lightweight Audio Classifier (librosa + scikit-learn)<br/>
+        <strong>Purpose:</strong> Classify audio into categories: speech, music, noise, silence<br/>
+        <strong>Features:</strong> Extracts spectral features, MFCCs, tempo, and audio characteristics
+      </p>
+      <div class="input-help">
+        <strong>Input:</strong> Audio file (MP3, WAV, etc.)
+        <small>⚠️ Supported formats: .mp3, .wav, .m4a, .flac, .ogg | Max size: 10MB</small>
+      </div>
+      <form id="audio-form" enctype="multipart/form-data">
+        <div class="file-upload-area" id="audio-drop-zone">
+          <input type="file" id="audio-file" name="audio" accept="audio/*" style="display: none;">
+          <div class="drop-zone-content">
+            <p>🎵 <strong>Click to select audio</strong> or drag & drop</p>
+            <p class="file-info" style="display: none;"></p>
+            <audio class="audio-preview" controls style="display: none; margin-top: 10px; width: 100%;"></audio>
+          </div>
+        </div>
+        <br/>
+        <button type="submit" disabled>🎯 Classify Audio</button>
+        <button type="button" id="audio-sample">🔊 Generate Demo Audio</button>
+      </form>
+      <div class="output-help">
+        <strong>Expected Output:</strong> Audio classification (speech/music/noise/silence) with confidence and features
+      </div>
+      <pre id="audio-out"></pre>
+    </fieldset>
   </div>
 
   <h2>Recent Jobs</h2>

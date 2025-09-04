@@ -71,3 +71,49 @@ th, td { border-bottom: 1px solid #eee; padding: .5rem; text-align: left; font-s
   font-weight: normal; 
   font-size: .85em; 
 }
+
+/* File upload styling */
+.file-upload-area {
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+  background: #fafafa;
+}
+
+.file-upload-area:hover, .file-upload-area.dragover {
+  border-color: #0066cc;
+  background: #f0f8ff;
+}
+
+.file-upload-area.has-file {
+  border-color: #28a745;
+  background: #f8fff9;
+}
+
+.drop-zone-content p {
+  margin: 0.5rem 0;
+}
+
+.file-info {
+  font-size: 0.9em;
+  color: #666;
+  font-style: italic;
+}
+
+.image-preview, .audio-preview {
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+/* Enhanced form styling */
+form {
+  margin: 0;
+}
+
+button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

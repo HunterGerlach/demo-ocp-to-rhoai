@@ -3,8 +3,8 @@
 This repo contains a minimal, fully runnable demo that shows a small path from a simple “current state” architecture to a deployable OpenShift 4.19 demo.
 It includes:
 
-* A **Rust queue broker** (REST API + enhanced UI) that: accepts requests, writes a job row to Postgres, publishes a message to RabbitMQ, and exposes job status endpoints and a `/ui` page for quick interaction.
-* A **Python worker** that consumes RabbitMQ messages, downloads two small **pickled** Hugging Face models ([iris classifier](https://huggingface.co/skops-tests/iris-sklearn-1.0-logistic_regression-without-config) + [diabetes regressor](https://huggingface.co/skops-tests/tabularregression-sklearn-latest-hist_gradient_boosting_regressor-with-config-pickle)), runs inference, and writes results back to Postgres.
+* A **Rust queue broker** (REST API + enhanced UI with file uploads) that: accepts requests, writes a job row to Postgres, publishes a message to RabbitMQ, and exposes job status endpoints and a `/ui` page for quick interaction.
+* A **Python worker** that consumes RabbitMQ messages, downloads ML models from Hugging Face ([iris classifier](https://huggingface.co/skops-tests/iris-sklearn-1.0-logistic_regression-without-config), [diabetes regressor](https://huggingface.co/skops-tests/tabularregression-sklearn-latest-hist_gradient_boosting_regressor-with-config-pickle), [YOLOv8 object detection](https://huggingface.co/ultralytics/yolov8n)) plus a lightweight audio classifier, runs inference, and writes results back to Postgres.
 * Kubernetes resources (OpenShift Template) that build images (BuildConfigs), create ImageStreams, and deploy as **Kubernetes Deployments** (OpenShift 4.19 friendly).
 * Helpful deployment, build, and debug steps for common platform issues (disk pressure, build failures due to Rust transitive crates, build resource hints, tolerations for demo).
 
@@ -12,13 +12,16 @@ It includes:
 
 ## Quick surface (what you get)
 
-* UI: `GET /ui` — submit Iris or Diabetes requests, view recent jobs (polling UI).
+* UI: `GET /ui` — submit requests for all 4 models, drag & drop file uploads, view recent jobs (polling UI).
 * API:
 
   * `POST /predict/iris` → body `{"features":[sepal_len,sepal_wid,petal_len,petal_wid]}`
   * `POST /predict/diabetes` → body `{"features":{age,sex,bmi,bp,s1,s2,s3,s4,s5,s6}}`
+  * `POST /predict/yolo` → multipart form with `image` file (object detection)
+  * `POST /predict/audio` → multipart form with `audio` file (audio classification)
   * `GET /jobs/{uuid}` → job status + result JSON
   * `GET /jobs?limit=20` → recent jobs (used by UI)
+  * `POST /admin/purge` → clear all jobs and queue
 * OpenShift target: **4.19** (uses Deployments + ImageStream triggers + lookupPolicy.local)
 
 ---
@@ -102,6 +105,22 @@ curl -s -X POST "https://${BROKER}/predict/diabetes" \
   -H "content-type: application/json" \
   -d '{"features":{"age":0.03,"sex":-0.0446,"bmi":0.02,"bp":0.01,"s1":0.1,"s2":0.08,"s3":0.02,"s4":0.03,"s5":0.04,"s6":-0.01}}'
 # Expected response: {"type":"regression","prediction":152.3}
+```
+
+* **Submit YOLO Object Detection** (image file upload):
+
+```bash
+curl -X POST "https://${BROKER}/predict/yolo" \
+  -F "image=@/path/to/your/image.jpg"
+# Expected response: {"type":"object_detection","detections":[{"class_name":"person","confidence":0.95,"bbox":[100,50,300,400]}]}
+```
+
+* **Submit Audio Classification** (audio file upload):
+
+```bash
+curl -X POST "https://${BROKER}/predict/audio" \
+  -F "audio=@/path/to/your/audio.wav"
+# Expected response: {"type":"audio_classification","predicted_class":"speech","confidence":0.75,"features":{...}}
 ```
 
 * Poll job:
@@ -266,6 +285,66 @@ This demo uses two pre-trained scikit-learn models from Hugging Face:
 }
 ```
 - Prediction range: approximately 25-346 (diabetes progression score)
+
+### 3. YOLO Object Detection Model
+* **HuggingFace Repo**: [`ultralytics/yolov8n`](https://huggingface.co/ultralytics/yolov8n)
+* **Model Type**: YOLOv8n (You Only Look Once) - nano version for fast inference
+* **Purpose**: Detect and classify objects in images with bounding boxes
+* **Classes**: 80 object classes from COCO dataset (person, car, dog, cat, bicycle, airplane, etc.)
+
+**Input Format**: 
+- Multipart form upload with `image` field
+- Supported formats: JPEG, PNG, BMP, TIFF
+- Recommended size: any resolution (model will auto-resize)
+
+**Output Format**:
+```json
+{
+  "type": "object_detection",
+  "num_detections": 3,
+  "image_size": [640, 480],
+  "detections": [
+    {
+      "class_id": 0,
+      "class_name": "person",
+      "confidence": 0.95,
+      "bbox": [100, 50, 300, 400]
+    }
+  ]
+}
+```
+- `bbox` format: [x1, y1, x2, y2] (top-left and bottom-right coordinates)
+
+### 4. Lightweight Audio Classification Model
+* **Model Type**: Custom audio classifier using librosa + scikit-learn
+* **Purpose**: Classify audio into basic categories: speech, music, noise, silence
+* **Features**: Extracts spectral features, MFCCs, tempo, zero-crossing rate, and other audio characteristics
+
+**Input Format**:
+- Multipart form upload with `audio` field  
+- Supported formats: MP3, WAV, M4A, FLAC, OGG
+- Duration: up to 30 seconds (longer files truncated)
+
+**Output Format**:
+```json
+{
+  "type": "audio_classification",
+  "predicted_class": "speech",
+  "confidence": 0.75,
+  "classes": ["speech", "music", "noise", "silence"],
+  "features": {
+    "duration": 2.5,
+    "rms_energy": 0.15,
+    "spectral_centroid_mean": 2500.3,
+    "zcr_mean": 0.12,
+    "tempo": 120.0,
+    "mfcc_0_mean": -45.2
+  }
+}
+```
+- **Lightweight**: No CUDA dependencies, uses only basic audio processing libraries
+- **Fast**: Rule-based classification with audio feature extraction
+- **Educational**: Shows audio feature engineering and classification concepts
 
 ### Models & Security Notes
 

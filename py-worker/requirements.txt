@@ -12,5 +12,7 @@ pillow==10.4.0
 # Audio processing (lightweight classifier)
 librosa==0.10.2
 soundfile==0.12.1
+scipy==1.11.4
+numba==0.58.1
 
 #

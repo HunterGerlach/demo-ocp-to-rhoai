@@ -3,8 +3,8 @@
 This repo contains a minimal, fully runnable demo that shows a small path from a simple “current state” architecture to a deployable OpenShift 4.19 demo.
 It includes:
 
-* A **Rust queue broker** (REST API + tiny UI) that: accepts requests, writes a job row to Postgres, publishes a message to RabbitMQ, and exposes job status endpoints and a `/ui` page for quick interaction.
-* A **Python worker** that consumes RabbitMQ messages, downloads two small **pickled** Hugging Face models (iris classifier + diabetes regressor), runs inference, and writes results back to Postgres.
+* A **Rust queue broker** (REST API + enhanced UI) that: accepts requests, writes a job row to Postgres, publishes a message to RabbitMQ, and exposes job status endpoints and a `/ui` page for quick interaction.
+* A **Python worker** that consumes RabbitMQ messages, downloads two small **pickled** Hugging Face models ([iris classifier](https://huggingface.co/skops-tests/iris-sklearn-1.0-logistic_regression-without-config) + [diabetes regressor](https://huggingface.co/skops-tests/tabularregression-sklearn-latest-hist_gradient_boosting_regressor-with-config-pickle)), runs inference, and writes results back to Postgres.
 * Kubernetes resources (OpenShift Template) that build images (BuildConfigs), create ImageStreams, and deploy as **Kubernetes Deployments** (OpenShift 4.19 friendly).
 * Helpful deployment, build, and debug steps for common platform issues (disk pressure, build failures due to Rust transitive crates, build resource hints, tolerations for demo).
 
@@ -85,21 +85,23 @@ echo "https://$(oc get route broker -o jsonpath='{.spec.host}')/ui"
 
 ## Test examples (curl)
 
-* Submit Iris:
+* **Submit Iris Classification** (small flower, likely setosa):
 
 ```bash
 BROKER=$(oc get route broker -o jsonpath='{.spec.host}')
 curl -s -X POST "https://${BROKER}/predict/iris" \
   -H "content-type: application/json" \
   -d '{"features":[5.1,3.5,1.4,0.2]}'
+# Expected response: {"type":"classification","label_name":"setosa","label_id":0,"confidence":0.95}
 ```
 
-* Submit Diabetes:
+* **Submit Diabetes Regression** (standardized physiological measurements):
 
 ```bash
 curl -s -X POST "https://${BROKER}/predict/diabetes" \
   -H "content-type: application/json" \
   -d '{"features":{"age":0.03,"sex":-0.0446,"bmi":0.02,"bp":0.01,"s1":0.1,"s2":0.08,"s3":0.02,"s4":0.03,"s5":0.04,"s6":-0.01}}'
+# Expected response: {"type":"regression","prediction":152.3}
 ```
 
 * Poll job:
@@ -214,10 +216,65 @@ Apply resource limits to Deployments using `oc set resources`.
 
 ---
 
-## Models & security notes
+## Machine Learning Models
 
-* Models used in this demo are **pickled scikit-learn artifacts** fetched from public Hugging Face repos. Pickle files execute code at load-time. **DO NOT** load untrusted pickles in production. This demo assumes you trust the given repos. Review and (re)host vetted artifacts for any production rollout.
+This demo uses two pre-trained scikit-learn models from Hugging Face:
+
+### 1. Iris Classification Model
+* **HuggingFace Repo**: [`skops-tests/iris-sklearn-1.0-logistic_regression-without-config`](https://huggingface.co/skops-tests/iris-sklearn-1.0-logistic_regression-without-config)
+* **Model Type**: Logistic Regression classifier
+* **Dataset**: [Iris flower dataset](https://en.wikipedia.org/wiki/Iris_flower_data_set) - classic ML dataset
+* **Purpose**: Predicts iris species (setosa, versicolor, virginica) from flower measurements
+
+**Input Format**: 
+```json
+{"features": [sepal_length, sepal_width, petal_length, petal_width]}
+```
+- All values in centimeters (cm)
+- Example: `[5.1, 3.5, 1.4, 0.2]` (likely setosa)
+- Typical ranges: sepal_length (4.3-7.9), sepal_width (2.0-4.4), petal_length (1.0-6.9), petal_width (0.1-2.5)
+
+**Output Format**:
+```json
+{
+  "type": "classification",
+  "label_id": 0,
+  "label_name": "setosa", 
+  "confidence": 0.95
+}
+```
+
+### 2. Diabetes Regression Model  
+* **HuggingFace Repo**: [`skops-tests/tabularregression-sklearn-latest-hist_gradient_boosting_regressor-with-config-pickle`](https://huggingface.co/skops-tests/tabularregression-sklearn-latest-hist_gradient_boosting_regressor-with-config-pickle)
+* **Model Type**: Histogram-based Gradient Boosting regressor
+* **Dataset**: [Diabetes dataset](https://scikit-learn.org/stable/datasets/toy_dataset.html#diabetes-dataset) from scikit-learn
+* **Purpose**: Predicts diabetes progression (disease severity score) from physiological measurements
+
+**Input Format**:
+```json
+{"features": {"age": 0.03, "sex": -0.0446, "bmi": 0.02, "bp": 0.01, "s1": 0.1, "s2": 0.08, "s3": 0.02, "s4": 0.03, "s5": 0.04, "s6": -0.01}}
+```
+- All values are **standardized** (mean=0, std=1)
+- Fields: age, sex, bmi (body mass index), bp (blood pressure), s1-s6 (serum measurements)
+- Typical range: approximately -2.0 to +2.0 for each feature
+
+**Output Format**:
+```json
+{
+  "type": "regression", 
+  "prediction": 152.3
+}
+```
+- Prediction range: approximately 25-346 (diabetes progression score)
+
+### Models & Security Notes
+
+* Models are **pickled scikit-learn artifacts** fetched from public Hugging Face repos. Pickle files execute code at load-time. **DO NOT** load untrusted pickles in production. This demo assumes you trust the given repos. Review and (re)host vetted artifacts for any production rollout.
 * The worker downloads the pickles from Hugging Face at startup and caches them under `/tmp/hf-cache` inside the container. That cache is ephemeral and will be redownloaded each time the pod is recreated.
+* For production use, consider:
+  - Converting to ONNX format for safer inference
+  - Using OpenShift AI Model Serving instead of custom workers
+  - Hosting models in your own secure registry
 
 ---
 

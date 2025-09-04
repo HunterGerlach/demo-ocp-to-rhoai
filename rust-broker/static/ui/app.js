@@ -73,8 +73,13 @@ listJobs();
 // Iris form
 qs('#iris-form').addEventListener('submit', async (ev)=>{
   ev.preventDefault();
-  const f = ev.target;
-  const feats = [f.f0.value, f.f1.value, f.f2.value, f.f3.value].map(parseFloat);
+  // Get values from the feature grid inputs
+  const feats = [
+    parseFloat(qs('[name="f0"]').value),
+    parseFloat(qs('[name="f1"]').value), 
+    parseFloat(qs('[name="f2"]').value),
+    parseFloat(qs('[name="f3"]').value)
+  ];
   try{
     const r = await fetch('/predict/iris', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({features:feats})});
     const text = await r.text();
@@ -86,9 +91,19 @@ qs('#iris-form').addEventListener('submit', async (ev)=>{
   }
 });
 qs('#iris-rand').addEventListener('click', ()=>{
-  const rand = ()=> (Math.random()*6).toFixed(2);
-  ['f0','f1','f2','f3'].forEach((n)=>{ qs('#iris-form [name=' + n + ']').value = rand(); });
-  console.log('Iris random values set');
+  // Generate realistic iris values within typical ranges
+  const ranges = [
+    {min: 4.3, max: 7.9}, // sepal length
+    {min: 2.0, max: 4.4}, // sepal width  
+    {min: 1.0, max: 6.9}, // petal length
+    {min: 0.1, max: 2.5}  // petal width
+  ];
+  ['f0','f1','f2','f3'].forEach((n, i)=>{ 
+    const range = ranges[i];
+    const value = (Math.random() * (range.max - range.min) + range.min).toFixed(2);
+    qs('[name="' + n + '"]').value = value; 
+  });
+  console.log('Iris random values set within realistic ranges');
 });
 
 // Diabetes form (build inputs)
@@ -109,8 +124,12 @@ qs('#diab-form').addEventListener('submit', async (ev)=>{
   }
 });
 qs('#diab-rand').addEventListener('click', ()=>{
-  diabKeys.forEach(k => { qs('#diab-form [name=' + k + ']').value = (Math.random()*0.2 - 0.1).toFixed(4); });
-  console.log('Diabetes random values set');
+  // Generate standardized values (mean=0, std=1) typically in range [-2, +2]
+  diabKeys.forEach(k => { 
+    const value = (Math.random() * 4 - 2).toFixed(4); // Range: -2.0 to +2.0
+    qs('#diab-form [name=' + k + ']').value = value; 
+  });
+  console.log('Diabetes random standardized values set');
 });
 
 // Purge DB & Queue

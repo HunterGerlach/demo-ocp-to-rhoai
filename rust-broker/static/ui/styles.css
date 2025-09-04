@@ -1,6 +1,6 @@
 body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
 h1 { margin-bottom: .5rem; }
-.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); }
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(400px,1fr)); }
 fieldset { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
 button { padding: .5rem .75rem; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }
 button:disabled { opacity: .6; cursor: not-allowed; }
@@ -16,3 +16,58 @@ th, td { border-bottom: 1px solid #eee; padding: .5rem; text-align: left; font-s
 .nowrap { white-space: nowrap; }
 .result { max-width: 420px; overflow-wrap: anywhere; }
 .panel { background:#fafafa; border:1px solid #eee; border-radius:8px; padding:1rem; }
+
+/* Model documentation styling */
+.model-info { 
+  background: #f8f9ff; 
+  border: 1px solid #e1e5f2; 
+  border-radius: 6px; 
+  padding: .75rem; 
+  margin: .5rem 0; 
+  font-size: .9em; 
+  line-height: 1.4;
+}
+.model-info a { color: #0066cc; text-decoration: none; }
+.model-info a:hover { text-decoration: underline; }
+
+.input-help { 
+  background: #f0f9f0; 
+  border: 1px solid #d4edda; 
+  border-radius: 6px; 
+  padding: .75rem; 
+  margin: .5rem 0; 
+  font-size: .9em;
+}
+
+.output-help { 
+  background: #fff3cd; 
+  border: 1px solid #ffeaa7; 
+  border-radius: 6px; 
+  padding: .5rem; 
+  margin: .5rem 0 0 0; 
+  font-size: .9em;
+}
+
+.feature-grid { 
+  display: grid; 
+  gap: .5rem; 
+  margin-top: .5rem; 
+}
+.feature-grid label { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  font-weight: 500; 
+}
+.feature-grid input { 
+  width: 80px; 
+  padding: .25rem; 
+  border: 1px solid #ccc; 
+  border-radius: 4px; 
+}
+
+.range { 
+  color: #666; 
+  font-weight: normal; 
+  font-size: .85em; 
+}

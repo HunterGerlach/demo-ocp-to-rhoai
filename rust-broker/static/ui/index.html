@@ -18,29 +18,51 @@
 
   <div class="grid">
     <fieldset>
-      <legend><strong>Iris</strong> (classification)</legend>
-      <p class="muted"><small>features: [sepal_len, sepal_wid, petal_len, petal_wid]</small></p>
+      <legend><strong>Iris Classification</strong> 🌺</legend>
+      <p class="model-info">
+        <strong>Model:</strong> <a href="https://huggingface.co/skops-tests/iris-sklearn-1.0-logistic_regression-without-config" target="_blank">Logistic Regression</a><br/>
+        <strong>Dataset:</strong> <a href="https://en.wikipedia.org/wiki/Iris_flower_data_set" target="_blank">Iris flower dataset</a><br/>
+        <strong>Purpose:</strong> Predict iris species (setosa, versicolor, virginica) from flower measurements
+      </p>
+      <div class="input-help">
+        <strong>Input:</strong> Flower measurements in centimeters (cm)
+        <div class="feature-grid">
+          <label>Sepal Length <span class="range">(4.3-7.9)</span>: <input type="number" step="0.01" name="f0" value="5.1" min="3" max="9" /></label>
+          <label>Sepal Width <span class="range">(2.0-4.4)</span>: <input type="number" step="0.01" name="f1" value="3.5" min="1" max="6" /></label>
+          <label>Petal Length <span class="range">(1.0-6.9)</span>: <input type="number" step="0.01" name="f2" value="1.4" min="0" max="8" /></label>
+          <label>Petal Width <span class="range">(0.1-2.5)</span>: <input type="number" step="0.01" name="f3" value="0.2" min="0" max="4" /></label>
+        </div>
+      </div>
       <form id="iris-form">
-        <input type="number" step="0.01" name="f0" value="5.1" /> 
-        <input type="number" step="0.01" name="f1" value="3.5" />
-        <input type="number" step="0.01" name="f2" value="1.4" />
-        <input type="number" step="0.01" name="f3" value="0.2" />
-        <br/><br/>
-        <button type="submit">Submit Iris</button>
-        <button type="button" id="iris-rand">Random</button>
+        <button type="submit">🔮 Predict Species</button>
+        <button type="button" id="iris-rand">🎲 Random Values</button>
       </form>
+      <div class="output-help">
+        <strong>Expected Output:</strong> Species name with confidence score
+      </div>
       <pre id="iris-out"></pre>
     </fieldset>
 
     <fieldset>
-      <legend><strong>Diabetes</strong> (regression)</legend>
-      <p class="muted"><small>features object with keys age, sex, bmi, bp, s1..s6 (standardized)</small></p>
+      <legend><strong>Diabetes Progression</strong> 🏥</legend>
+      <p class="model-info">
+        <strong>Model:</strong> <a href="https://huggingface.co/skops-tests/tabularregression-sklearn-latest-hist_gradient_boosting_regressor-with-config-pickle" target="_blank">Gradient Boosting Regressor</a><br/>
+        <strong>Dataset:</strong> <a href="https://scikit-learn.org/stable/datasets/toy_dataset.html#diabetes-dataset" target="_blank">Diabetes dataset (scikit-learn)</a><br/>
+        <strong>Purpose:</strong> Predict diabetes progression score from physiological measurements
+      </p>
+      <div class="input-help">
+        <strong>Input:</strong> Standardized physiological measurements (mean=0, std=1)
+        <small>⚠️ All values are standardized - typical range: -2.0 to +2.0</small>
+      </div>
       <form id="diab-form">
         <div id="diab-fields"></div>
         <br/>
-        <button type="submit">Submit Diabetes</button>
-        <button type="button" id="diab-rand">Random</button>
+        <button type="submit">📊 Predict Progression</button>
+        <button type="button" id="diab-rand">🎲 Random Values</button>
       </form>
+      <div class="output-help">
+        <strong>Expected Output:</strong> Progression score (25-346 range)
+      </div>
       <pre id="diab-out"></pre>
     </fieldset>
   </div>

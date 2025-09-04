@@ -1,8 +1,12 @@
 FROM python:3.11-slim
 
-# Install minimal system dependencies
+# Install system dependencies including build tools for scikit-learn
 RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
+    gcc \
+    g++ \
+    libc6-dev \
+    python3-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -14,7 +18,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install all dependencies (CUDA-free)
-RUN pip install --no-cache-dir pika psycopg2-binary huggingface_hub scikit-learn numpy joblib pillow librosa soundfile
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 EXPOSE 8000
